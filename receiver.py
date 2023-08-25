@@ -9,6 +9,13 @@ import tqdm
 
 logging.basicConfig(filename='receiver.log', level=logging.INFO)
 
+# For sending ordinary messages
+def send(message):
+    alice_box = Box(skalice, pkbob)
+    encrypted = alice_box.encrypt(message.encode())
+    print("ENC MESSAGE", encrypted)
+    client_socket.sendall(encrypted)
+
 # For decrypting ordinary messages
 def decrypt(message):
     alice_box = Box(skalice, pkbob)
@@ -64,14 +71,13 @@ else:
 
 # Exchange public keys
 pkalice_encoded = pkalice.encode()
-# print("PKALICE_ENCODED:", pkalice_encoded)
 client_socket.sendall(pkalice_encoded)
 print("PKALICE_ENCODED SENT", pkalice_encoded)
-pkbob_encoded = client_socket.recv(BUFFER_SIZE)
-print(f"\nPKBOB RECEIVED {pkbob_encoded}")
+pkbob = client_socket.recv(BUFFER_SIZE)
+print(f"\nPKBOB RECEIVED {pkbob}")
 
-# Decode
-pkbob = PublicKey(pkbob_encoded)
+# Convert bytes back into PublicKey object
+pkbob = PublicKey(pkbob)
 
 # Receive encrypted file info
 file_info_enc = client_socket.recv(BUFFER_SIZE)
@@ -93,6 +99,11 @@ file_name = "".join(["sent-", file_name])
 file_size = int(file_size)
 print("FILE NAME", file_name)
 print("FILE SIZE", file_size)
+
+##### TEST
+# Send ok before transmitting file to ensure clients are in sync and to avoid mixing packets together/out-of-order delivery
+# OR: Append <END> label to every packet to know when packet ends and remove once accepted?
+send("OK")
 
 ### PROBLEMS START!
 

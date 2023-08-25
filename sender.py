@@ -8,16 +8,21 @@ import tqdm
 
 # For sending ordinary messages
 def send(message):
-    bob_box = Box(skbob, pkalice_decoded)
+    bob_box = Box(skbob, pkalice)
     encrypted = bob_box.encrypt(message.encode())
     print("FILE INFO ENC", encrypted)
     client_socket.sendall(encrypted)
 
 # For sending bytes
 def sendbytes(bytes):
-    bob_box = Box(skbob, pkalice_decoded)
+    bob_box = Box(skbob, pkalice)
     encrypted = bob_box.encrypt(bytes)
     client_socket.sendall(encrypted)
+
+# For decrypting ordinary messages
+def decrypt(message):
+    bob_box = Box(skbob, pkalice)
+    return bob_box.decrypt(message).decode()
 
 # use dynamic port
 port = 8080
@@ -71,35 +76,45 @@ else:
 pkbob_encoded = pkbob.encode()
 client_socket.sendall(pkbob_encoded)
 print("PKBOB_ENCODED SENT:", pkbob_encoded)
-pkalice_decoded = client_socket.recv(BUFFER_SIZE)
-print(f"\nPKALICE RECEIVED {pkalice_decoded}")
+pkalice = client_socket.recv(BUFFER_SIZE)
+print(f"\nPKALICE RECEIVED {pkalice}")
 
 # TODO: Exception if PKALICE is empty, ie not sent correctly
 
-# Decode
-pkalice_decoded = PublicKey(pkalice_decoded)
+# Convert bytes back into PulicKey object
+pkalice = PublicKey(pkalice)
 
 # Send the name and size of the file
 send(f"{file_name}{SEPARATOR}{file_size}")
 print("FILE NAME", file_name)
 print("FILE SIZE", file_size)
 
+# Receive "OK" message before sending file
+ok_enc = client_socket.recv(BUFFER_SIZE)
+print("OK ENC", ok_enc)
 
-### PROBLEMS START! 
+# Decrypt ok message using private key
+ok = decrypt(ok_enc)
+print("OK", ok)
 
-# start sending file
-progress = tqdm.tqdm(range(file_size), f"Sending {file_name}", unit="B", unit_scale=True, unit_divisor=1024)
+if ok == "OK":
+    ### PROBLEMS START! 
 
-# Read file in chunks and send to socket
-with open(file_name, "rb") as f:
-    while True:
-        data = f.read(BUFFER_SIZE)
-        print("DATA", data)
-        if not data:
-            # file transmitting is done
-            break
-        sendbytes(data)
-        progress.update(len(data))
+    # start sending file
+    progress = tqdm.tqdm(range(file_size), f"Sending {file_name}", unit="B", unit_scale=True, unit_divisor=1024)
+
+    # Read file in chunks and send to socket
+    with open(file_name, "rb") as f:
+        while True:
+            data = f.read(BUFFER_SIZE)
+            print("DATA", data)
+            if not data:
+                # file transmitting is done
+                break
+            sendbytes(data)
+            progress.update(len(data))
+else:
+    print(f"Did not receive OK. Received {ok}.")
 
 client_socket.close()
 
