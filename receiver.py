@@ -8,6 +8,7 @@ import logging
 import tqdm
 
 logging.basicConfig(filename='receiver.log', level=logging.INFO)
+logging.info("\nNew run:\n")
 
 # For sending ordinary messages
 def send(message):
@@ -27,7 +28,10 @@ def decryptbytes(bytes):
     return alice_box.decrypt(bytes)
 
 port = 8080
-BUFFER_SIZE = 4096
+
+# NOTE: Buffer size must always be 40 bytes more than the sender because encryption will pad with 40 more bytes automatically
+
+BUFFER_SIZE = 1064
 SEPARATOR = "<SEPARATOR>"
 # Device's own ip address
 # Using 0.0.0.0 to be reachable if device has multiple ip addresses
@@ -39,7 +43,6 @@ skalice = PrivateKey.generate()
 pkalice = skalice.public_key
 print("Skalice:", skalice)
 print("Pkalice:", pkalice)
-
 
 # TODO: Could create this as a function??
 
@@ -57,17 +60,20 @@ client_socket, client_address = server_socket.accept()
 # Message printed if sender is connected
 print(f"[+] {client_address} is connected")
 
-# Send message to client that just connected
-client_socket.send(f"Connected to IP address of {socket.gethostbyname(socket.gethostname())}".encode())
-# Recieve "connected" message from the server
-message = client_socket.recv(BUFFER_SIZE).decode()
+# NOTE: Removed because connect message and public key data have possibility of merging
+    # Would need to send "OK" confirmation before sending key data
 
-if message == "quit":
-    client_socket.send("quit".encode())
-    print("\nEnding the chat...goodbye!")
-    # break
-else:
-    print(f"\n{message}")
+# # Send message to client that just connected
+# client_socket.sendall(f"Connected to IP address of {socket.gethostbyname(socket.gethostname())}".encode())
+# # Recieve "connected" message from the server
+# message = client_socket.recv(BUFFER_SIZE).decode()
+
+# if message == "quit":
+#     client_socket.send("quit".encode())
+#     print("\nEnding the chat...goodbye!")
+#     # break
+# else:
+#     print(f"\n{message}")
 
 # Exchange public keys
 pkalice_encoded = pkalice.encode()
@@ -105,24 +111,35 @@ print("FILE SIZE", file_size)
 # OR: Append <END> label to every packet to know when packet ends and remove once accepted?
 send("OK")
 
-### PROBLEMS START!
-
 # Start receiving file from socket and writing to the file stream
-progress = tqdm.tqdm(range(file_size), f"Receiving {file_name}", unit="B", unit_scale=True, unit_divisor=1024)
+progress = tqdm.tqdm(range(file_size), f"Receiving {file_name}", unit="B", unit_scale=True, unit_divisor=1064, total=int(file_size * 1.04))
+file_bytes = b""
+
+i = 0
 with open(file_name, "wb") as f:
     while True:
-        # Receive and read 4096 bytes from the socket
+        # Receive and read x bytes from the socket
         data_enc = client_socket.recv(BUFFER_SIZE)
-        print("DATA_ENC:", data_enc)
+        # No more data to transmit
         if not data_enc:
-            # Nothing received and file transmitting is finished
+            logging.info(f"Received empty")
             break
-        # Decrypt bytes using keys
-        data = decryptbytes(data_enc)
-        print("DATA", data)
-        # Write to the file the bytes we received
-        f.write(data)
+        # logging.info(f"DATA_ENC: {data_enc}")
+        # # Decrypt bytes using keys
+        try:
+            data = decryptbytes(data_enc)
+        except nacl.exceptions.CryptoError:
+            logging.info(f"{i}: Failed: {data_enc}")
+        else:
+            logging.info(f"{i}: Success")
+        finally:
+            i += 1
+        # print("DECRYPTED", data)
+        file_bytes += data
         # Update progress bar
-        progress.update(len(data))
+        progress.update(len(data_enc))
+
+    # Write to file decrypted bytes
+    f.write(file_bytes)
 
 server_socket.close()
