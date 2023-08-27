@@ -1,128 +1,118 @@
-# Receiver of the message / TCP server side
-import nacl.utils
-from nacl.public import PrivateKey, PublicKey, Box
+from nacl.public import Box, PrivateKey, PublicKey
 import socket
 import os
-import builtins
 import logging
 import tqdm
 
 logging.basicConfig(filename='receiver.log', level=logging.INFO)
 logging.info("\nNew run:\n")
 
-# For sending ordinary messages
-def send(client_socket, skalice, pkbob, message):
-    alice_box = Box(skalice, pkbob)
-    encrypted = alice_box.encrypt(message.encode())
-    # print("ENC MESSAGE", encrypted)
-    client_socket.sendall(encrypted)
+# Class responsible for encryption and decryption using NaCl library
+class EncryptionHandler:
+    def __init__(self, skalice, pkbob):
+        self.alice_box = Box(skalice, pkbob)
 
-# For decrypting ordinary messages
-def decrypt(skalice, pkbob, message):
-    alice_box = Box(skalice, pkbob)
-    return alice_box.decrypt(message).decode()
+    def encrypt(self, message):
+        encrypted = self.alice_box.encrypt(message.encode())
+        return encrypted
 
-# For decrypting bytes, does not decode bytes to string
-def decryptbytes(skalice, pkbob, bytes):
-    alice_box = Box(skalice, pkbob)
-    return alice_box.decrypt(bytes)
+    def decrypt(self, message):
+        return self.alice_box.decrypt(message).decode()
+    
+    def decryptbytes(self, bytes):
+        return self.alice_box.decrypt(bytes)
 
-def receiver(BUFFER_SIZE=1064):
+# Class to manage the server-side socket
+class Server:
+    def __init__(self, host, port, buffer_size=1064):
+        self.host = host
+        self.port = port
+        self.buffer_size = buffer_size
+        self.server_socket = None
+
+    def start(self):
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.bind((self.host, self.port))
+        self.server_socket.listen()
+        print(f"[*] Listening as {self.host}:{self.port}")
+
+    def accept_client(self):
+        client_socket, client_address = self.server_socket.accept()
+        print(f"[+] {client_address} is connected")
+        return client_socket
+    
+    def close(self):
+        self.server_socket.close()
+
+# Class to handle receiving and processing of files
+class Receiver:
+    def __init__(self, client_socket, encryption_handler, buffer_size=1064):
+        self.client_socket = client_socket
+        self.encryption_handler = encryption_handler
+        self.buffer_size = buffer_size
+
+    def send_response(self, message):
+        encrypted = self.encryption_handler.encrypt(message)
+        self.client_socket.sendall(encrypted)
+
+    def receive_file(self, file_name, file_size):
+        with open(file_name, "wb") as f:
+            progress = tqdm.tqdm(range(file_size), f"Receiving {file_name}", unit="B", unit_scale=True, unit_divisor=1064, total=int(file_size * 1.04))
+            file_bytes = b""
+
+            while True:
+                data_enc = self.client_socket.recv(self.buffer_size)
+                # No more data to transmit
+                if not data_enc:
+                    break
+
+                data = self.encryption_handler.decryptbytes(data_enc)
+                file_bytes += data
+                progress.update(len(data_enc))
+
+            f.write(file_bytes)
+
+        # TODO: Decide whether this needs to be closed
+        self.client_socket.close()
+
+def receive():
     port = 8080
-    # NOTE: Buffer size must always be 40 bytes more than the sender because encryption will pad with 40 more bytes automatically
-    BUFFER_SIZE = 1064
-    SEPARATOR = "<SEPARATOR>"
-    # Using 0.0.0.0 to be reachable if device has multiple ip addresses
     device_ip = "0.0.0.0"
 
-    # Generate keys for Alice
     skalice = PrivateKey.generate()
     pkalice = skalice.public_key
-    print("Skalice:", skalice)
-    print("Pkalice:", pkalice)
 
-    # TODO: Could create this as a function??
+    # Initialize the server and start listening for connections
+    server = Server(device_ip, port)
+    server.start()
 
-    # Create a server side socket using IPV4 (AF_INET) and TCP (SOCK_STREAM)
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Accept the client connection
+    client_socket = server.accept_client()
 
-    # Bind socket to our local address (IP address, Port)
-    server_socket.bind((device_ip, port))
-
-    # Put socket into listening mode to listen for any possible connections
-    server_socket.listen()
-    print(f"[*] Listening as {device_ip}:{port}")
-    # Accept any incoming connection if any
-    client_socket, client_address = server_socket.accept()
-    # Message printed if sender is connected
-    print(f"[+] {client_address} is connected")
-
-    # Exchange public keys
+    # Send public key and receive peer's public key
     pkalice_encoded = pkalice.encode()
     client_socket.sendall(pkalice_encoded)
-    print("PKALICE_ENCODED SENT", pkalice_encoded)
-    pkbob = client_socket.recv(BUFFER_SIZE)
-    print(f"\nPKBOB RECEIVED {pkbob}")
-
-    # Convert bytes back into PublicKey object
+    pkbob = client_socket.recv(server.buffer_size)
     pkbob = PublicKey(pkbob)
 
-    # Receive encrypted file info
-    file_info_enc = client_socket.recv(BUFFER_SIZE)
-    print("FILE INFO ENC", file_info_enc)
+    # Create an EncryptionHandler instance for secure communication
+    encryption_handler = EncryptionHandler(skalice, pkbob)
 
-    # Decrypt message using private key
-    file_info = decrypt(skalice, pkbob, file_info_enc)
-    file_name, file_size = file_info.split(SEPARATOR)
-
+    # Receive encrypted file info and decrypt it
+    file_info_enc = client_socket.recv(server.buffer_size)
+    file_info = encryption_handler.decrypt(file_info_enc)
+    file_name, file_size = file_info.split("<SEPARATOR>")
     # Remove absolute file path if present
     file_name = os.path.basename(file_name)
-
-    # FOR TESTING PURPOSES: appending 'sent' to file name so that original file won't be overwritten
+    # Appending sent to file name so that original file won't be overwritten
     file_name = "".join(["sent-", file_name])
-
-    print(f"FILE SIZE TYPE {type(file_size)}")
-    # Convert to integer
     file_size = int(file_size)
-    print("FILE NAME", file_name)
-    print("FILE SIZE", file_size)
 
-##### TEST
-# Send ok before transmitting file to ensure clients are in sync and to avoid mixing packets together/out-of-order delivery
-# OR: Append <END> label to every packet to know when packet ends and remove once accepted?
-    send(client_socket, skalice, pkbob, "OK")
-
-# Start receiving file from socket and writing to the file stream
-    progress = tqdm.tqdm(range(file_size), f"Receiving {file_name}", unit="B", unit_scale=True, unit_divisor=1064, total=int(file_size * 1.04))
-    file_bytes = b""
-
-    i = 0
-    with open(file_name, "wb") as f:
-        while True:
-            # Receive and read x bytes from the socket
-            data_enc = client_socket.recv(BUFFER_SIZE)
-            # No more data to transmit
-            if not data_enc:
-                logging.info(f"Received empty")
-                break
-            # logging.info(f"DATA_ENC: {data_enc}")
-            try:
-                data = decryptbytes(skalice, pkbob, data_enc)
-            except nacl.exceptions.CryptoError:
-                logging.info(f"{i}: Failed: {data_enc}")
-            else:
-                logging.info(f"{i}: Success")
-            finally:
-                i += 1
-            # print("DECRYPTED", data)
-            file_bytes += data
-            # Update progress bar
-            progress.update(len(data_enc))
-
-        # Write to file decrypted bytes
-        f.write(file_bytes)
-
-    server_socket.close()
+    # Initialize the Receiver to handle file reception
+    receiver = Receiver(client_socket, encryption_handler, server.buffer_size)
+    receiver.send_response("OK")
+    receiver.receive_file(file_name, file_size)
+    server.close()
 
 if __name__ == "__main__":
-    receiver()
+    receive()
