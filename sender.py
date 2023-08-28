@@ -1,113 +1,100 @@
 # Sender of the message / TCP client side
-import nacl.utils
-from nacl.public import PrivateKey, PublicKey, Box
+from nacl.public import Box, PrivateKey, PublicKey
 import socket
 import os
-import builtins
 import tqdm
-import logging
 
-logging.basicConfig(filename='sender.log', level=logging.INFO)
-logging.info("\nNew run:\n")
+# Class responsible for encryption and decryption using NaCl library
+class EncryptionHandler:
+    def __init__(self, skbob, pkalice):
+        self.box = Box(skbob, pkalice)
 
-# For sending ordinary messages
-def send(client_socket, skbob, pkalice, message):
-    bob_box = Box(skbob, pkalice)
-    encrypted = bob_box.encrypt(message.encode())
-    # print("FILE INFO ENC", encrypted)
-    client_socket.sendall(encrypted)
+    def encrypt(self, data):
+        encrypted = self.box.encrypt(data)
+        return encrypted
 
-# For sending bytes
-def sendbytes(client_socket, skbob, pkalice, bytes, i):
-    bob_box = Box(skbob, pkalice)
-    # print("BEFORE ENCRYPT", len(bytes))
-    encrypted = bob_box.encrypt(bytes)
-    # print("AFTER ENCRYPT", len(encrypted))
-    client_socket.sendall(encrypted)
-    logging.info(f"{i}: {encrypted}")
+    def decrypt(self, data):
+        return self.box.decrypt(data).decode()
+    
+# Class responsible for sending files securely over a network connection
+class FileSender:
+    def __init__(self, destination_ip, destination_port, buffer_size=1024):
+        self.destination_ip = destination_ip
+        self.destination_port = destination_port
+        self.buffer_size = int(buffer_size)
+        self.encryption_handler = None
+        self.skbob = PrivateKey.generate()
+        self.pkbob = self.skbob.public_key
+        self.client_socket = None
+        self.pkalice = None
+        
+    def key_exchange(self):
+        pkbob_encoded = self.pkbob.encode()
+        self.client_socket.sendall(pkbob_encoded)
+        pkalice_bytes = self.client_socket.recv(self.buffer_size)
+        self.pkalice = PublicKey(pkalice_bytes)
+        
+    def connect(self):
+        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        print(f"[+] Connecting to {self.destination_ip}:{self.destination_port}")
+        self.client_socket.connect((self.destination_ip, self.destination_port))
+        print(f"[+] Connected")
+        
+    def close(self):
+        self.client_socket.close()
 
-# For decrypting ordinary messages
-def decrypt(skbob, pkalice, message):
-    bob_box = Box(skbob, pkalice)
-    return bob_box.decrypt(message).decode()
+    def send_message(self, message):
+        encrypted = self.encryption_handler.encrypt(message.encode())
+        self.client_socket.sendall(encrypted)
+        
+    def _send_bytes(self, bytes):
+        encrypted = self.encryption_handler.encrypt(bytes)
+        self.client_socket.sendall(encrypted)
+
+    def send_file(self, file_name):
+        if self.client_socket == None:
+            print("Must connect to server before sending!")
+        if self.pkalice == None:
+            self.key_exchange()
+
+        # Send file name and size
+        file_size = os.path.getsize(file_name)
+        separator = "<SEPARATOR>"
+        file_info = f"{file_name}{separator}{file_size}"
+        self.encryption_handler =  EncryptionHandler(self.skbob, self.pkalice)
+        self.send_message(file_info)
+
+        # Receive "OK" message before sending the file
+        ok_enc = self.client_socket.recv(self.buffer_size)
+        ok = self.encryption_handler.decrypt(ok_enc)
+
+        # Start sending file once recieved confirmation of ready to accept
+        if ok == "OK":
+            # Sending the file in chunks
+            progress = tqdm.tqdm(range(file_size), f"Sending {file_name}", unit="B", unit_scale=True, unit_divisor=1024, total=int(file_size))
+            i = 0
+
+            with open(file_name, "rb") as f:
+                while True:
+                    data = f.read(self.buffer_size)
+                    if not data:
+                        break
+                    self._send_bytes(data)
+                    i += 1
+                    progress.update(len(data))
+        else:
+            print(f"Did not receive OK. File transfer failed.")
+
 
 def sender():
-    port = 8080
+    destination_ip = socket.gethostbyname(socket.gethostname())
+    destination_port = 8080
+    file_name = "file.txt"
 
-    # TODO: Will use input() to get file name after
-    file_name = "tower.jpg"
-    file_size = os.path.getsize(file_name)
-    SEPARATOR = "<SEPARATOR>"
-
-    # TODO: Possibly allow to change buffer size? 
-    # prob not though since client and sender would 
-    # need to have same buf size
-
-    BUFFER_SIZE = 1024
-
-    # Generate keys for Bob
-    skbob = PrivateKey.generate()
-    pkbob = skbob.public_key
-    print("Skbob:", skbob)
-    print("Pkbob:", pkbob)
-
-# Create client side IPV4 socket (AF_INET) and TCP (SOCK_STREAM)
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    # TODO: To be removed in favour of input(), only for testing right now so ip address is set to the same machine
-    # Ip address you want to send to 
-    ip_addr = socket.gethostbyname(socket.gethostname())
-    # ip_addr = input("Enter IP address to send file to: ")
-
-    # if ip_addr == "loopback":
-    #     ip_addr = "localhost"
-
-# Connect the socket to a server located at a given IP and Port
-    print(f"[+] Connecting to {ip_addr}:{port}")
-    client_socket.connect((ip_addr, port))
-    print(f"[+] Connected")
-
-# Exchange public keys
-    pkbob_encoded = pkbob.encode()
-    client_socket.sendall(pkbob_encoded)
-    print("PKBOB_ENCODED SENT:", pkbob_encoded)
-    pkalice = client_socket.recv(BUFFER_SIZE)
-    print(f"\nPKALICE RECEIVED {pkalice}")
-
-# Convert bytes back into PulicKey object
-    pkalice = PublicKey(pkalice)
-
-# Send the name and size of the file
-    send(client_socket, skbob, pkalice, f"{file_name}{SEPARATOR}{file_size}")
-    print("FILE NAME", file_name)
-    print("FILE SIZE", file_size)
-
-# Receive "OK" message before sending file
-    ok_enc = client_socket.recv(BUFFER_SIZE)
-    print("OK ENC", ok_enc)
-
-# Decrypt ok message using private key
-    ok = decrypt(skbob, pkalice, ok_enc)
-    print("OK", ok)
-
-# Start sending file once recieved confirmation of ready to accept
-    if ok == "OK":
-        # start sending file
-        progress = tqdm.tqdm(range(file_size), f"Sending {file_name}", unit="B", unit_scale=True, unit_divisor=1024, total=int(file_size))
-        i = 0
-        # Read file in chunks and send to socket
-        with open(file_name, "rb") as f:
-            while True:
-                data = f.read(BUFFER_SIZE)
-                if not data:
-                    break
-                sendbytes(client_socket, skbob, pkalice, data, i)
-                i += 1
-                progress.update(len(data))
-    else:
-        print(f"Did not receive OK. File transfer failed.")
-
-    client_socket.close()
+    sender = FileSender(destination_ip, destination_port)
+    sender.connect()
+    sender.send_file(file_name)
+    sender.close()
 
 if __name__ == "__main__":
     sender()

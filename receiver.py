@@ -10,17 +10,17 @@ logging.info("\nNew run:\n")
 # Class responsible for encryption and decryption using NaCl library
 class EncryptionHandler:
     def __init__(self, skalice, pkbob):
-        self.alice_box = Box(skalice, pkbob)
+        self.box = Box(skalice, pkbob)
 
     def encrypt(self, message):
-        encrypted = self.alice_box.encrypt(message.encode())
+        encrypted = self.box.encrypt(message.encode())
         return encrypted
 
     def decrypt(self, message):
-        return self.alice_box.decrypt(message).decode()
+        return self.box.decrypt(message).decode()
     
     def decryptbytes(self, bytes):
-        return self.alice_box.decrypt(bytes)
+        return self.box.decrypt(bytes)
 
 # Class to manage the server-side socket
 class Server:
@@ -45,7 +45,7 @@ class Server:
         self.server_socket.close()
 
 # Class to handle receiving and processing of files
-class Receiver:
+class FileReceiver:
     def __init__(self, client_socket, encryption_handler, buffer_size=1064):
         self.client_socket = client_socket
         self.encryption_handler = encryption_handler
@@ -109,7 +109,7 @@ def receive():
     file_size = int(file_size)
 
     # Initialize the Receiver to handle file reception
-    receiver = Receiver(client_socket, encryption_handler, server.buffer_size)
+    receiver = FileReceiver(client_socket, encryption_handler, server.buffer_size)
     receiver.send_response("OK")
     receiver.receive_file(file_name, file_size)
     server.close()
