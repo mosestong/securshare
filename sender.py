@@ -3,6 +3,7 @@ from nacl.public import Box, PrivateKey, PublicKey
 import socket
 import os
 import tqdm
+import zipfile
 
 # Class responsible for encryption and decryption using NaCl library
 class EncryptionHandler:
@@ -51,6 +52,10 @@ class FileSender:
         encrypted = self.encryption_handler.encrypt(bytes)
         self.client_socket.sendall(encrypted)
 
+    # def compress(self, file_name):
+    #     zip = zipfile.Zipfile(f"{file_name}.zip", 'w')
+    #     zip.write(file_name)
+
     def send_file(self, file_name):
         if self.client_socket == None:
             print("Must connect to server before sending!")
@@ -86,15 +91,13 @@ class FileSender:
             print(f"Did not receive OK. File transfer failed.")
 
 
-def sender():
-    destination_ip = socket.gethostbyname(socket.gethostname())
-    destination_port = 8080
-    file_name = "file.txt"
+def send(files, destination_ip="localhost", destination_port=8080):
 
     sender = FileSender(destination_ip, destination_port)
     sender.connect()
-    sender.send_file(file_name)
+    for file_name in files: 
+        sender.send_file(file_name)
     sender.close()
 
-if __name__ == "__main__":
-    sender()
+# if __name__ == "__main__":
+#     send("cn-tower.jpg")

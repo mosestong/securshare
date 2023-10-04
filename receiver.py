@@ -55,8 +55,8 @@ class FileReceiver:
         encrypted = self.encryption_handler.encrypt(message)
         self.client_socket.sendall(encrypted)
 
-    def receive_file(self, file_name, file_size):
-        with open(file_name, "wb") as f:
+    def receive_file(self, file_path, file_name, file_size):
+        with open(os.path.join(file_path, file_name), "wb") as f:
             progress = tqdm.tqdm(range(file_size), f"Receiving {file_name}", unit="B", unit_scale=True, unit_divisor=1064, total=int(file_size * 1.04))
             file_bytes = b""
 
@@ -75,14 +75,13 @@ class FileReceiver:
         # TODO: Decide whether this needs to be closed
         self.client_socket.close()
 
-def receive():
-    port = 8080
+def receive(file_path="", port=8080):
     device_ip = "0.0.0.0"
 
     skalice = PrivateKey.generate()
     pkalice = skalice.public_key
 
-    # Initialize the server and start listening for connections
+    # Initialize the server and start listening for connections on specified port
     server = Server(device_ip, port)
     server.start()
 
@@ -111,8 +110,8 @@ def receive():
     # Initialize the Receiver to handle file reception
     receiver = FileReceiver(client_socket, encryption_handler, server.buffer_size)
     receiver.send_response("OK")
-    receiver.receive_file(file_name, file_size)
+    receiver.receive_file(file_path, file_name, file_size)
     server.close()
 
-if __name__ == "__main__":
-    receive()
+# if __name__ == "__main__":
+#     receive()
