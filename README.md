@@ -1,17 +1,17 @@
 # SecurShare
 
-SecurShare is a user-friendly file sharing application for secure and seamless transfers between two devices.
+SecurShare is a user-friendly file sharing application for secure and seamless transfers between two devices. It encrypts files using public key cryptography from the PyNaCl library.
 
 ## Dependencies
 
-* [Python](https://www.python.org/downloads/)
-  <!-- ```sh
-  npm install npm@latest -g
-  ``` -->
-* [PyNaCl](https://pypi.org/project/PyNaCl/)
+Install dependencies with:
   ```sh
-  pip install PyNaCl
+  pip install -r requirements.txt
   ```
+
+## Planned Features
+* Allow option to send multiple files at once
+* Allow option to compress files before sending
 
 <!-- CONTACT -->
 ## Contact
