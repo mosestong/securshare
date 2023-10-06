@@ -1,6 +1,6 @@
 # SecurShare
 
-SecurShare is a user-friendly file sharing application for secure and seamless transfers between two devices. It encrypts files using public key cryptography from the PyNaCl library.
+SecurShare is a user-friendly file sharing application for secure and seamless transfers between two devices. It encrypts files using public key encryption from the PyNaCl library.
 
 ## Dependencies
 
@@ -10,12 +10,12 @@ Install dependencies with:
   ```
 
 ## Planned Features
-* Allow option to send multiple files at once
-* Allow option to compress files before sending
+* Option to send multiple files at once
+* Option to compress files before encryption and sending
 
 <!-- CONTACT -->
 ## Contact
 
 Moses Tong - moses.tong@dal.ca
 
-Project Link: [https://github.com/mosestong/securshare](https://github.com/mosestong/securshare)
+Project Link - [https://github.com/mosestong/securshare](https://github.com/mosestong/securshare)
